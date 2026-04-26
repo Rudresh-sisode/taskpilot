@@ -4,6 +4,7 @@ import { useAuth } from "./context/AuthContext";
 import { AppShell } from "./components/AppShell";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import ResetPassword from "./pages/ResetPassword";
 import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
 
@@ -35,6 +36,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<ProtectedRoute><TaskList /></ProtectedRoute>} />
         <Route path="/tasks/:id" element={<ProtectedRoute><TaskDetail /></ProtectedRoute>} />
       </Routes>

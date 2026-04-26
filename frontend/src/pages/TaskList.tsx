@@ -18,6 +18,7 @@ import { Input } from "../components/Input";
 import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { LabelChip } from "../components/LabelChip";
+import { celebrate } from "../components/Celebration";
 import { STATUSES, getStatus, type TaskStatus } from "../lib/status";
 import { LABELS } from "../lib/labels";
 import { cn } from "../lib/cn";
@@ -329,9 +330,10 @@ export default function TaskList() {
             <li key={t.id}>
               <TaskRow
                 task={t}
-                onStatusChange={(status) =>
-                  updateStatus.mutate({ id: t.id, status })
-                }
+                onStatusChange={(status) => {
+                  if (status === "done" && t.status !== "done") celebrate();
+                  updateStatus.mutate({ id: t.id, status });
+                }}
                 onDelete={() => handleDelete(t)}
               />
             </li>

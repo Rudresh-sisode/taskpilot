@@ -27,6 +27,7 @@ import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { StatusPicker } from "../components/StatusPicker";
 import { LabelPicker } from "../components/LabelPicker";
+import { celebrate } from "../components/Celebration";
 import { type TaskStatus } from "../lib/status";
 import {
   AlertDialog,
@@ -70,7 +71,10 @@ export default function TaskDetail() {
     mutationFn: (body: Parameters<typeof api.updateTask>[1]) =>
       api.updateTask(id!, body),
     onSuccess: (data) => {
-      qc.setQueryData(["task", id], data);
+      qc.setQueryData<Task>(["task", id], (prev) => ({
+        ...data,
+        ai_summary: data.ai_summary ?? prev?.ai_summary ?? null,
+      }));
       qc.invalidateQueries({ queryKey: ["tasks"] });
       setSavedSnap({ title: data.title, notes: data.notes });
       lastSavedAtRef.current = Date.now();
@@ -131,12 +135,18 @@ export default function TaskDetail() {
       toast.error("Couldn't update task");
     },
     onSuccess: (data) => {
-      qc.setQueryData(["task", id], data);
+      qc.setQueryData<Task>(["task", id], (prev) => ({
+        ...data,
+        ai_summary: data.ai_summary ?? prev?.ai_summary ?? null,
+      }));
       qc.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
 
   function setStatus(status: TaskStatus) {
+    if (status === "done" && task?.status !== "done") {
+      celebrate();
+    }
     patch.mutate({ status });
   }
   function setLabels(labels: string[]) {
@@ -351,7 +361,7 @@ function AiPanel({
 
   const [copied, setCopied] = useState(false);
   function handleCopy() {
-    const text = `${summaryText}\n\nNext steps:\n${items.map((i) => `• ${i}`).join("\n")}`;
+    const text = `${summaryText}\n\nYour Action Items:\n${items.map((i) => `• ${i}`).join("\n")}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     toast.success("Copied to clipboard");
@@ -490,7 +500,7 @@ function AiPanel({
             {items.length > 0 && (
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Next steps
+                  Your Action Items
                 </p>
                 <ul className="space-y-1.5">
                   {items.map((item, i) => (

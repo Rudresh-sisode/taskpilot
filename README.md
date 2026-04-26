@@ -146,13 +146,27 @@ The Supabase service role key must only be used by the backend. The frontend sho
 
 ## Docker
 
-The backend can be run with Docker Compose:
+The full local stack can be run with Docker Compose:
 
 ```bash
 docker compose up
 ```
 
-This starts the backend on `http://localhost:8080` using `backend/.env`. Run the Vite frontend separately during local development.
+This starts:
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8080`
+
+Compose reads backend settings from `backend/.env` and frontend settings from `frontend/.env`. The frontend container runs the Vite dev server with a bind mount, so local frontend edits are picked up without rebuilding.
+
+Useful Docker commands:
+
+```bash
+docker compose up --build
+docker compose up --build -d
+docker compose logs -f backend frontend
+docker compose down
+```
 
 ## Quality Checks
 

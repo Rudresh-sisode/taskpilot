@@ -15,11 +15,26 @@ body,
 body {
   @apply bg-zinc-50 text-zinc-900 antialiased;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
-  background-image:
-    radial-gradient(at 20% 0%, rgb(99 102 241 / 0.08) 0px, transparent 50%),
-    radial-gradient(at 80% 0%, rgb(168 85 247 / 0.06) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgb(56 189 248 / 0.05) 0px, transparent 50%);
+  background:
+    linear-gradient(135deg, rgb(66 133 244 / 0.14) 0%, transparent 34%),
+    linear-gradient(225deg, rgb(234 67 53 / 0.1) 0%, transparent 32%),
+    linear-gradient(315deg, rgb(251 188 5 / 0.12) 0%, transparent 34%),
+    linear-gradient(45deg, rgb(52 168 83 / 0.1) 0%, transparent 35%),
+    linear-gradient(180deg, #fbfbff 0%, #f8fafc 48%, #eef8fb 100%);
   background-attachment: fixed;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.28) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.24) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.8), transparent 75%);
 }
 
 @layer utilities {

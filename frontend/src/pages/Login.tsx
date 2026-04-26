@@ -60,7 +60,7 @@ export default function Login() {
     <AuthLayout>
       <div className="space-y-1.5">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-          {resetMode ? "Reset your password" : "Welcome back!"}
+          {resetMode ? "Reset your password" : "Welcome back"}
         </h1>
         <p className="text-sm text-zinc-500">
           {resetMode

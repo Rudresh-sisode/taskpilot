@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { notifyError } from "../lib/errorMascot";
 
 const BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
@@ -59,12 +60,17 @@ export function useAiStream(taskId: string): AiStreamResult {
     });
 
     es.addEventListener("error", (e) => {
+      let message = "Connection lost";
       if (e instanceof MessageEvent) {
-        const parsed = JSON.parse(e.data);
-        setError(parsed.message);
-      } else {
-        setError("Connection lost");
+        try {
+          const parsed = JSON.parse(e.data);
+          message = parsed.message || message;
+        } catch {
+          message = e.data || message;
+        }
       }
+      setError(message);
+      notifyError(message);
       setStatus("error");
       es.close();
     });

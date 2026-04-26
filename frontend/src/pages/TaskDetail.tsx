@@ -28,6 +28,7 @@ import { Skeleton } from "../components/Skeleton";
 import { StatusPicker } from "../components/StatusPicker";
 import { LabelPicker } from "../components/LabelPicker";
 import { celebrateStatus } from "../lib/celebration";
+import { notifyError } from "../lib/errorMascot";
 import { type TaskStatus } from "../lib/status";
 import {
   AlertDialog,
@@ -79,7 +80,7 @@ export default function TaskDetail() {
       setSavedSnap({ title: data.title, notes: data.notes });
       lastSavedAtRef.current = Date.now();
     },
-    onError: () => toast.error("Failed to save changes"),
+    onError: () => notifyError("Failed to save changes"),
   });
 
   const dirty = title !== savedSnap.title || notes !== savedSnap.notes;
@@ -118,7 +119,7 @@ export default function TaskDetail() {
       qc.invalidateQueries({ queryKey: ["tasks"] });
       navigate("/");
     },
-    onError: () => toast.error("Couldn't delete task"),
+    onError: () => notifyError("Couldn't delete task"),
   });
 
   const patch = useMutation({
@@ -132,7 +133,7 @@ export default function TaskDetail() {
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(["task", id], ctx.prev);
-      toast.error("Couldn't update task");
+      notifyError("Couldn't update task");
     },
     onSuccess: (data) => {
       qc.setQueryData<Task>(["task", id], (prev) => ({

@@ -1,10 +1,12 @@
-import { useState, useMemo, type FormEvent } from "react";
+import { useEffect, useState, useMemo, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff, AlertCircle, ArrowRight, Check } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { AuthLayout } from "../components/AuthLayout";
+import { MinionFight } from "../components/MinionFight";
+import { notifyError } from "../lib/errorMascot";
 import { cn } from "../lib/cn";
 
 function strength(pw: string) {
@@ -26,9 +28,16 @@ export default function Signup() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirmationPending, setConfirmationPending] = useState(false);
   const navigate = useNavigate();
 
   const score = useMemo(() => strength(password), [password]);
+
+  useEffect(() => {
+    if (!confirmationPending) return;
+    const timer = window.setTimeout(() => navigate("/login"), 5000);
+    return () => window.clearTimeout(timer);
+  }, [confirmationPending, navigate]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -36,8 +45,45 @@ export default function Signup() {
     setLoading(true);
     const { error } = await supabase.auth.signUp({ email, password });
     setLoading(false);
-    if (error) return setError(error.message);
-    navigate("/");
+    if (error) {
+      setError(error.message);
+      notifyError(error.message);
+      return;
+    }
+    setConfirmationPending(true);
+  }
+
+  if (confirmationPending) {
+    return (
+      <AuthLayout>
+        <div className="animate-fade-in text-center">
+          <div className="mx-auto mb-5 flex h-44 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-soft">
+            <MinionFight className="h-40 w-full max-w-xs" />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
+            Confirm your mail
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            We sent a confirmation code to{" "}
+            <span className="font-medium text-zinc-700">{email}</span>.
+            <br />
+            They always fight, don't worry about them.
+          </p>
+          <div className="mt-6 h-1.5 overflow-hidden rounded-full bg-zinc-100">
+            <div className="h-full rounded-full bg-zinc-900 animate-[confirm-countdown_5s_linear_forwards]" />
+          </div>
+          <p className="mt-3 text-xs text-zinc-400">
+            Redirecting to sign in...
+          </p>
+          <style>{`
+            @keyframes confirm-countdown {
+              from { width: 100%; }
+              to { width: 0%; }
+            }
+          `}</style>
+        </div>
+      </AuthLayout>
+    );
   }
 
   return (

@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { AuthLayout } from "../components/AuthLayout";
+import { notifyError } from "../lib/errorMascot";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -20,7 +21,11 @@ export default function Login() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) return setError(error.message);
+    if (error) {
+      setError(error.message);
+      notifyError(error.message);
+      return;
+    }
     navigate("/");
   }
 

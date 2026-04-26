@@ -31,6 +31,7 @@ import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { LabelChip } from "../components/LabelChip";
 import { celebrateStatus } from "../lib/celebration";
+import { notifyError } from "../lib/errorMascot";
 import { STATUSES, getStatus, type TaskStatus } from "../lib/status";
 import { LABELS } from "../lib/labels";
 import { cn } from "../lib/cn";
@@ -132,7 +133,7 @@ export default function TaskList() {
       ctx?.snapshots.forEach(([key, val]) =>
         qc.setQueryData<TasksInfinite>(key, val),
       );
-      toast.error("Couldn't create task");
+      notifyError("Couldn't create task");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
   });
@@ -151,7 +152,7 @@ export default function TaskList() {
       ctx?.snapshots.forEach(([key, val]) =>
         qc.setQueryData<TasksInfinite>(key, val),
       );
-      toast.error("Couldn't delete task");
+      notifyError("Couldn't delete task");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
   });
@@ -173,7 +174,7 @@ export default function TaskList() {
       ctx?.snapshots.forEach(([key, val]) =>
         qc.setQueryData<TasksInfinite>(key, val),
       );
-      toast.error("Couldn't update status");
+      notifyError("Couldn't update status");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
   });

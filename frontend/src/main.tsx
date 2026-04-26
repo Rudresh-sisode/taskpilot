@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { AuthProvider } from "./context/AuthContext";
 import { CelebrationHost } from "./components/Celebration";
+import { ErrorMascotHost } from "./components/ErrorMascot";
 import App from "./App";
 import "./index.css";
 
@@ -19,6 +20,7 @@ createRoot(document.getElementById("root")!).render(
       <AuthProvider>
         <App />
         <CelebrationHost />
+        <ErrorMascotHost />
         <Toaster
           position="bottom-right"
           richColors

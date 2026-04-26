@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { notifyError } from "../lib/errorMascot";
 
 const BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+const AUTH_EXPIRED_MESSAGE = "Your session expired. Please sign in again.";
 
 type Status = "idle" | "streaming" | "done" | "error";
 
@@ -40,6 +41,20 @@ export function useAiStream(taskId: string): AiStreamResult {
 
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token ?? "";
+    if (!token) {
+      setError(AUTH_EXPIRED_MESSAGE);
+      notifyError(AUTH_EXPIRED_MESSAGE);
+      setStatus("error");
+      return;
+    }
+    const { error: authError } = await supabase.auth.getUser();
+    if (authError) {
+      await supabase.auth.signOut();
+      setError(AUTH_EXPIRED_MESSAGE);
+      notifyError(AUTH_EXPIRED_MESSAGE);
+      setStatus("error");
+      return;
+    }
 
     const es = new EventSource(
       `${BASE}/api/tasks/${taskId}/ai/stream?token=${encodeURIComponent(token)}`,
@@ -65,12 +80,19 @@ export function useAiStream(taskId: string): AiStreamResult {
         try {
           const parsed = JSON.parse(e.data);
           message = parsed.message || message;
+          if (parsed.code === "UNAUTHORIZED" || parsed.message === "Invalid token") {
+            message = AUTH_EXPIRED_MESSAGE;
+            supabase.auth.signOut();
+          }
         } catch {
           message = e.data || message;
         }
       }
       setError(message);
       notifyError(message);
+      if (message === AUTH_EXPIRED_MESSAGE) {
+        supabase.auth.signOut();
+      }
       setStatus("error");
       es.close();
     });

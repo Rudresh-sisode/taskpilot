@@ -2,6 +2,19 @@ import { supabase } from "./supabase";
 import type { TaskStatus } from "./status";
 
 const BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+const AUTH_EXPIRED_MESSAGE = "Your session expired. Please sign in again.";
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function getToken() {
   const { data } = await supabase.auth.getSession();
@@ -19,7 +32,17 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
     },
   });
   const json = await res.json();
-  if (!json.ok) throw new Error(json.error?.message || "Request failed");
+  if (res.status === 401 || json.error?.code === "UNAUTHORIZED") {
+    await supabase.auth.signOut();
+    throw new ApiError(AUTH_EXPIRED_MESSAGE, 401, "UNAUTHORIZED");
+  }
+  if (!json.ok) {
+    throw new ApiError(
+      json.error?.message || "Request failed",
+      res.status,
+      json.error?.code,
+    );
+  }
   return json.data;
 }
 

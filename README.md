@@ -9,17 +9,40 @@ TaskPilot is a production-oriented fullstack task manager where authenticated us
 ## Architecture
 
 ```text
-Browser (React + Vite)
-  |
-  |-- Auth --------> Supabase Auth
-  |
-  |-- API ---------> Express backend
-                      |
-                      |-- CRUD -----> Supabase Postgres
-                      |
-                      |-- SSE ------> OpenAI streaming chat completion
-                                      |
-                                      |-- ai_summaries cache/history table
+                 TASKPILOT REQUEST FLOW
+
+  +---------------------------+        auth session         +------------------+
+  |                           |--------------------------->|                  |
+  |   Browser / React / Vite  |                            |  Supabase Auth   |
+  |                           |<---------------------------|                  |
+  +-------------+-------------+        access token         +------------------+
+                |
+                | REST + Bearer token
+                v
+  +-------------+-------------------------------------------------------------+
+  |                         Express API on Railway                            |
+  |                                                                           |
+  |  +----------------+     +----------------+     +-----------------------+  |
+  |  | Auth middleware|---->| Task CRUD API  |---->| Supabase Postgres     |  |
+  |  +----------------+     | /api/tasks     |     | tasks + ai_summaries  |  |
+  |                         +----------------+     +-----------------------+  |
+  |                                  |                         ^              |
+  |                                  | cache hit / persist      |              |
+  |                                  v                         |              |
+  |                         +----------------+                  |              |
+  |                         | AI SSE stream  |------------------+              |
+  |                         | /ai/stream     |                                 |
+  |                         +-------+--------+                                 |
+  +---------------------------------+-----------------------------------------+
+                                    |
+                                    | streamed tokens
+                                    v
+                           +------------------+
+                           | OpenAI Chat API  |
+                           +------------------+
+
+  The browser receives SSE token events progressively, then a final structured
+  summary + action item payload is cached against the task content hash.
 ```
 
 ## Features

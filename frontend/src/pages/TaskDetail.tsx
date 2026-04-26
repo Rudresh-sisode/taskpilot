@@ -22,10 +22,22 @@ import { useAiStream } from "../hooks/useAiStream";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";
-import { Checkbox } from "../components/Checkbox";
 import { Textarea } from "../components/Textarea";
 import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
+import { StatusPicker } from "../components/StatusPicker";
+import { LabelPicker } from "../components/LabelPicker";
+import { type TaskStatus } from "../lib/status";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../components/AlertDialog";
 
 const AUTOSAVE_MS = 800;
 
@@ -42,6 +54,7 @@ export default function TaskDetail() {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [savedSnap, setSavedSnap] = useState({ title: "", notes: "" });
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const lastSavedAtRef = useRef<number | null>(null);
   const [, force] = useState(0);
 
@@ -104,13 +117,31 @@ export default function TaskDetail() {
     onError: () => toast.error("Couldn't delete task"),
   });
 
-  const toggleStatus = useMutation({
-    mutationFn: (status: "open" | "done") => api.updateTask(id!, { status }),
+  const patch = useMutation({
+    mutationFn: (body: Partial<Pick<Task, "status" | "labels">>) =>
+      api.updateTask(id!, body),
+    onMutate: async (body) => {
+      await qc.cancelQueries({ queryKey: ["task", id] });
+      const prev = qc.getQueryData<Task>(["task", id]);
+      if (prev) qc.setQueryData<Task>(["task", id], { ...prev, ...body });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["task", id], ctx.prev);
+      toast.error("Couldn't update task");
+    },
     onSuccess: (data) => {
       qc.setQueryData(["task", id], data);
       qc.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
+
+  function setStatus(status: TaskStatus) {
+    patch.mutate({ status });
+  }
+  function setLabels(labels: string[]) {
+    patch.mutate({ labels });
+  }
 
   const ai = useAiStream(id!);
 
@@ -147,17 +178,42 @@ export default function TaskDetail() {
             error={update.isError}
             lastSavedAt={lastSavedAtRef.current}
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-            className="text-red-600 hover:bg-red-50 hover:text-red-700"
-            onClick={() => {
-              if (confirm("Delete this task?")) del.mutate();
+          <AlertDialog
+            open={deleteOpen}
+            onOpenChange={(open) => {
+              if (!del.isPending) setDeleteOpen(open);
             }}
           >
-            Delete
-          </Button>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+              >
+                Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete task?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete "{task.title}" and its AI summary
+                  history. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={del.isPending} />
+                <Button
+                  variant="destructive"
+                  loading={del.isPending}
+                  onClick={() => del.mutate()}
+                >
+                  Delete task
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
@@ -180,15 +236,35 @@ export default function TaskDetail() {
               placeholder="Add details, context, or anything else worth remembering…"
               hint="Tip: ⌘+S to save · changes autosave"
             />
-            <div className="flex items-center justify-between border-t border-zinc-100 pt-4">
-              <Checkbox
-                checked={task.status === "done"}
-                onChange={(c) => toggleStatus.mutate(c ? "done" : "open")}
-                label={task.status === "done" ? "Completed" : "Mark as completed"}
-              />
+          </Card>
+
+          <Card className="space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-zinc-900">Properties</h3>
               <span className="text-xs text-zinc-400">
                 Updated {formatRelative(task.updated_at)}
               </span>
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-start">
+              <span className="pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Status
+              </span>
+              <div>
+                <StatusPicker value={task.status} onChange={setStatus} />
+              </div>
+
+              <span className="pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Labels
+              </span>
+              <div>
+                <LabelPicker value={task.labels} onChange={setLabels} />
+                {task.labels.length === 0 && (
+                  <p className="mt-1.5 text-xs text-zinc-400">
+                    Categorize this task with one or more labels.
+                  </p>
+                )}
+              </div>
             </div>
           </Card>
         </div>

@@ -51,6 +51,14 @@ function normalizeTask(task: TaskPayload): Task {
   };
 }
 
+function trimTaskText<T extends { title?: string; notes?: string }>(body: T): T {
+  return {
+    ...body,
+    ...(body.title !== undefined ? { title: body.title.trim() } : {}),
+    ...(body.notes !== undefined ? { notes: body.notes.trim() } : {}),
+  };
+}
+
 export interface TaskListPage {
   items: Task[];
   total: number;
@@ -87,16 +95,17 @@ export const api = {
     return normalizeTask(task);
   },
   createTask: (body: { title: string; notes?: string; labels?: string[] }) =>
-    request<TaskPayload>("/api/tasks", { method: "POST", body: JSON.stringify(body) }).then(
-      normalizeTask,
-    ),
+    request<TaskPayload>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(trimTaskText(body)),
+    }).then(normalizeTask),
   updateTask: (
     id: string,
     body: Partial<Pick<Task, "title" | "notes" | "status" | "labels">>,
   ) =>
     request<TaskPayload>(`/api/tasks/${id}`, {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body: JSON.stringify(trimTaskText(body)),
     }).then(normalizeTask),
   deleteTask: (id: string) =>
     request<null>(`/api/tasks/${id}`, { method: "DELETE" }),

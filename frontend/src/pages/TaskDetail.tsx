@@ -43,6 +43,13 @@ import {
 
 const AUTOSAVE_MS = 800;
 
+function getTrimmedContent(title: string, notes: string) {
+  return {
+    title: title.trim(),
+    notes: notes.trim(),
+  };
+}
+
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -77,6 +84,8 @@ export default function TaskDetail() {
         ai_summary: data.ai_summary ?? prev?.ai_summary ?? null,
       }));
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      setTitle(data.title);
+      setNotes(data.notes);
       setSavedSnap({ title: data.title, notes: data.notes });
       lastSavedAtRef.current = Date.now();
     },
@@ -89,7 +98,12 @@ export default function TaskDetail() {
   useEffect(() => {
     if (!task || !dirty) return;
     const handle = setTimeout(() => {
-      update.mutate({ title, notes });
+      const next = getTrimmedContent(title, notes);
+      if (!next.title) {
+        notifyError("Title can't be empty");
+        return;
+      }
+      update.mutate(next);
     }, AUTOSAVE_MS);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +114,14 @@ export default function TaskDetail() {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (dirty && !update.isPending) update.mutate({ title, notes });
+        if (dirty && !update.isPending) {
+          const next = getTrimmedContent(title, notes);
+          if (!next.title) {
+            notifyError("Title can't be empty");
+            return;
+          }
+          update.mutate(next);
+        }
       }
     }
     window.addEventListener("keydown", onKey);

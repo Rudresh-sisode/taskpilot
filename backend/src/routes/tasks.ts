@@ -5,17 +5,42 @@ import type { AuthRequest } from "../middleware/auth.js";
 
 export const tasksRouter = Router();
 
-// List tasks
+// List tasks (paginated)
 tasksRouter.get("/", async (req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", req.userId!)
-      .order("created_at", { ascending: false });
+    const limit = Math.min(
+      Math.max(parseInt(String(req.query.limit ?? "10"), 10) || 10, 1),
+      100,
+    );
+    const offset = Math.max(
+      parseInt(String(req.query.offset ?? "0"), 10) || 0,
+      0,
+    );
+    const status = typeof req.query.status === "string" ? req.query.status : "";
 
+    let q = supabase
+      .from("tasks")
+      .select("*", { count: "exact" })
+      .eq("user_id", req.userId!);
+
+    if (["open", "in_progress", "done", "cancelled"].includes(status)) {
+      q = q.eq("status", status);
+    }
+
+    q = q
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data, error, count } = await q;
     if (error) throw error;
-    res.json({ ok: true, data });
+
+    const total = count ?? 0;
+    const nextOffset = offset + (data?.length ?? 0) < total ? offset + limit : null;
+
+    res.json({
+      ok: true,
+      data: { items: data ?? [], total, nextOffset },
+    });
   } catch (e) {
     next(e);
   }

@@ -27,7 +27,7 @@ import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { StatusPicker } from "../components/StatusPicker";
 import { LabelPicker } from "../components/LabelPicker";
-import { celebrate } from "../components/Celebration";
+import { celebrateStatus } from "../lib/celebration";
 import { type TaskStatus } from "../lib/status";
 import {
   AlertDialog,
@@ -144,8 +144,13 @@ export default function TaskDetail() {
   });
 
   function setStatus(status: TaskStatus) {
-    if (status === "done" && task?.status !== "done") {
-      celebrate();
+    if (
+      (status === "done" ||
+        status === "in_progress" ||
+        status === "cancelled") &&
+      task?.status !== status
+    ) {
+      celebrateStatus(status);
     }
     patch.mutate({ status });
   }
@@ -171,7 +176,8 @@ export default function TaskDetail() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       {/* Top bar */}
       <div className="mb-6 flex items-center justify-between">
         <Link
@@ -283,6 +289,7 @@ export default function TaskDetail() {
         <aside className="lg:sticky lg:top-20 lg:self-start">
           <AiPanel task={task} ai={ai} dirty={dirty} />
         </aside>
+      </div>
       </div>
     </div>
   );

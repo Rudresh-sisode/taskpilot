@@ -14,8 +14,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const initial = (email[0] ?? "?").toUpperCase();
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="sticky top-0 z-30 border-b border-zinc-200/60 bg-white/70 backdrop-blur-xl backdrop-saturate-150">
+    <div className="flex h-[100dvh] flex-col">
+      <header className="z-30 shrink-0 border-b border-zinc-200/60 bg-white/70 backdrop-blur-xl backdrop-saturate-150">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="focus-ring rounded-md">
             <Logo />
@@ -65,7 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }

@@ -51,10 +51,36 @@ function normalizeTask(task: TaskPayload): Task {
   };
 }
 
+export interface TaskListPage {
+  items: Task[];
+  total: number;
+  nextOffset: number | null;
+}
+
+interface TaskListPagePayload {
+  items: TaskPayload[];
+  total: number;
+  nextOffset: number | null;
+}
+
+export interface ListTasksParams {
+  limit?: number;
+  offset?: number;
+  status?: TaskStatus;
+}
+
 export const api = {
-  listTasks: async () => {
-    const tasks = await request<TaskPayload[]>("/api/tasks");
-    return tasks.map(normalizeTask);
+  listTasks: async (params: ListTasksParams = {}): Promise<TaskListPage> => {
+    const qs = new URLSearchParams();
+    qs.set("limit", String(params.limit ?? 10));
+    qs.set("offset", String(params.offset ?? 0));
+    if (params.status) qs.set("status", params.status);
+    const page = await request<TaskListPagePayload>(`/api/tasks?${qs.toString()}`);
+    return {
+      items: page.items.map(normalizeTask),
+      total: page.total,
+      nextOffset: page.nextOffset,
+    };
   },
   getTask: async (id: string) => {
     const task = await request<TaskPayload>(`/api/tasks/${id}`);

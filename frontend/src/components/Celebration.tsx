@@ -1,44 +1,70 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { createPortal } from "react-dom";
 import { MinionBob } from "./MinionBob";
+import { MinionBewildered, MinionRunner } from "./MinionMood";
+import {
+  CELEBRATION_EVENT,
+  type CelebratePayload,
+  type CelebrationVariant,
+} from "../lib/celebration";
 
-const EVENT = "taskpilot:celebrate";
-const PHRASES = [
-  "Banana! Task done! 🍌",
-  "Bee-do bee-do — nailed it!",
-  "Poopaye! One down!",
-  "Tulaliloo ti amo — great job!",
-  "Whaaat?! You did it!",
-  "Bello! Another win!",
-];
-
-interface CelebratePayload {
-  message?: string;
-}
-
-export function celebrate(payload: CelebratePayload = {}) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<CelebratePayload>(EVENT, { detail: payload }));
-}
+const PHRASES: Record<CelebrationVariant, string[]> = {
+  done: [
+    "Banana! Task done!",
+    "Bee-do bee-do. Nailed it!",
+    "Poopaye! One down!",
+    "Tulaliloo ti amo. Great job!",
+    "Whaaat?! You did it!",
+    "Bello! Another win!",
+  ],
+  in_progress: [
+    "Momentum is building. Keep going.",
+    "Small steps count. Stay with it.",
+    "You started. Now make the next move.",
+    "Focus mode on. One clear step at a time.",
+    "Progress beats perfect. Keep pushing.",
+  ],
+  cancelled: [
+    "Plot twist. Clear the noise and choose the next best task.",
+    "That one is parked. Your focus is still valuable.",
+    "Not every task survives the plan. Move forward cleanly.",
+    "Surprised? Maybe. Stuck? No. Pick the next priority.",
+    "Task cancelled. Attention reclaimed.",
+  ],
+};
 
 export function CelebrationHost() {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<string>("");
+  const [variant, setVariant] = useState<CelebrationVariant>("done");
   const [seed, setSeed] = useState(0); // re-mount confetti
+  const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     function onCelebrate(e: Event) {
       const detail = (e as CustomEvent<CelebratePayload>).detail ?? {};
+      const nextVariant = detail.variant ?? "done";
+      const phrases = PHRASES[nextVariant];
+      setVariant(nextVariant);
       setMessage(
-        detail.message ?? PHRASES[Math.floor(Math.random() * PHRASES.length)],
+        detail.message ?? phrases[Math.floor(Math.random() * phrases.length)],
       );
       setSeed((s) => s + 1);
       setOpen(true);
-      window.clearTimeout((onCelebrate as any)._t);
-      (onCelebrate as any)._t = window.setTimeout(() => setOpen(false), 3200);
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = window.setTimeout(() => setOpen(false), 3200);
     }
-    window.addEventListener(EVENT, onCelebrate);
-    return () => window.removeEventListener(EVENT, onCelebrate);
+    window.addEventListener(CELEBRATION_EVENT, onCelebrate);
+    return () => {
+      window.removeEventListener(CELEBRATION_EVENT, onCelebrate);
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    };
   }, []);
 
   if (typeof document === "undefined") return null;
@@ -49,9 +75,9 @@ export function CelebrationHost() {
       className="pointer-events-none fixed inset-0 z-[100] overflow-hidden"
     >
       {/* Confetti */}
-      {open && <Confetti key={seed} />}
+      {open && variant === "done" && <Confetti key={seed} />}
 
-      {/* Bob + bubble */}
+      {/* Mascot + bubble */}
       <div
         className={`absolute bottom-6 right-6 flex items-end gap-3 transition-all duration-500 ease-out ${
           open
@@ -71,7 +97,13 @@ export function CelebrationHost() {
           />
         </div>
 
-        <MinionBob className="h-32 w-auto drop-shadow-xl" />
+        {variant === "done" ? (
+          <MinionBob className="h-32 w-auto drop-shadow-xl" />
+        ) : variant === "in_progress" ? (
+          <MinionRunner className="h-32 w-auto drop-shadow-xl" />
+        ) : (
+          <MinionBewildered className="h-32 w-auto drop-shadow-xl" />
+        )}
       </div>
     </div>,
     document.body,
@@ -114,17 +146,18 @@ function Confetti() {
         <span
           key={p.id}
           className="absolute top-[-20px] block"
-          style={{
+          style={
+            {
             left: `${p.left}%`,
             width: p.size,
             height: p.size,
             backgroundColor: p.color,
             borderRadius: p.shape === "circle" ? "50%" : "2px",
             animation: `confetti-fall ${p.duration}s cubic-bezier(0.2, 0.8, 0.4, 1) ${p.delay}s forwards`,
-            // CSS variables consumed by the keyframes
-            ["--drift" as any]: `${p.drift}px`,
-            ["--rot" as any]: `${p.rotate}deg`,
-          }}
+            "--drift": `${p.drift}px`,
+            "--rot": `${p.rotate}deg`,
+          } as CSSProperties & { "--drift": string; "--rot": string }
+          }
         />
       ))}
       <style>{`

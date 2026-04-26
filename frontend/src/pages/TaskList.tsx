@@ -1,6 +1,17 @@
-import { useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Plus,
@@ -11,24 +22,40 @@ import {
   Inbox,
   Tags,
   X,
+  Loader2,
 } from "lucide-react";
-import { api, type Task } from "../lib/api";
+import { api, type Task, type TaskListPage } from "../lib/api";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { LabelChip } from "../components/LabelChip";
-import { celebrate } from "../components/Celebration";
+import { celebrateStatus } from "../lib/celebration";
 import { STATUSES, getStatus, type TaskStatus } from "../lib/status";
 import { LABELS } from "../lib/labels";
 import { cn } from "../lib/cn";
 
 type Filter = "all" | TaskStatus;
+const PAGE_SIZE = 10;
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
   ...STATUSES.map((s) => ({ value: s.value, label: s.label })),
 ];
+
+type TasksInfinite = InfiniteData<TaskListPage>;
+
+/** Mutate every page in the infinite cache. */
+function mapPages(
+  data: TasksInfinite | undefined,
+  fn: (items: Task[]) => Task[],
+): TasksInfinite | undefined {
+  if (!data) return data;
+  return {
+    ...data,
+    pages: data.pages.map((p) => ({ ...p, items: fn(p.items) })),
+  };
+}
 
 export default function TaskList() {
   const qc = useQueryClient();
@@ -38,16 +65,40 @@ export default function TaskList() {
   const [labelFilter, setLabelFilter] = useState<string[]>([]);
   const [labelMenuOpen, setLabelMenuOpen] = useState(false);
 
-  const { data: tasks, isLoading } = useQuery({
-    queryKey: ["tasks"],
-    queryFn: api.listTasks,
+  const queryKey = useMemo(() => ["tasks", { filter }] as const, [filter]);
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery<TaskListPage>({
+    queryKey,
+    initialPageParam: 0,
+    queryFn: ({ pageParam = 0 }) =>
+      api.listTasks({
+        limit: PAGE_SIZE,
+        offset: pageParam as number,
+        status: filter === "all" ? undefined : filter,
+      }),
+    getNextPageParam: (last) => last.nextOffset ?? undefined,
   });
+
+  const allLoaded: Task[] = useMemo(
+    () => data?.pages.flatMap((p) => p.items) ?? [],
+    [data],
+  );
+  const total = data?.pages[0]?.total ?? 0;
+
+  /* -------------------- Mutations -------------------- */
 
   const create = useMutation({
     mutationFn: api.createTask,
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: ["tasks"] });
-      const prev = qc.getQueryData<Task[]>(["tasks"]);
+      // Snapshot every cached tasks query so we can roll back any of them.
+      const snapshots = qc.getQueriesData<TasksInfinite>({ queryKey: ["tasks"] });
       const optimistic: Task = {
         id: `temp-${Date.now()}`,
         title: vars.title,
@@ -58,12 +109,29 @@ export default function TaskList() {
         updated_at: new Date().toISOString(),
         ai_summary: null,
       };
-      qc.setQueryData<Task[]>(["tasks"], (old) => [optimistic, ...(old ?? [])]);
+      if (filter !== "all" && filter !== "open") {
+        setTitle("");
+        return { snapshots };
+      }
+      // Insert into the active "all" or "open" page-1 cache.
+      qc.setQueryData<TasksInfinite>(queryKey, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p, i) =>
+            i === 0
+              ? { ...p, items: [optimistic, ...p.items], total: p.total + 1 }
+              : p,
+          ),
+        };
+      });
       setTitle("");
-      return { prev };
+      return { snapshots };
     },
     onError: (_err, _vars, ctx) => {
-      qc.setQueryData(["tasks"], ctx?.prev);
+      ctx?.snapshots.forEach(([key, val]) =>
+        qc.setQueryData<TasksInfinite>(key, val),
+      );
       toast.error("Couldn't create task");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
@@ -73,14 +141,16 @@ export default function TaskList() {
     mutationFn: api.deleteTask,
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: ["tasks"] });
-      const prev = qc.getQueryData<Task[]>(["tasks"]);
-      qc.setQueryData<Task[]>(["tasks"], (old) =>
-        old?.filter((t) => t.id !== id) ?? [],
+      const snapshots = qc.getQueriesData<TasksInfinite>({ queryKey: ["tasks"] });
+      qc.setQueriesData<TasksInfinite>({ queryKey: ["tasks"] }, (old) =>
+        mapPages(old, (items) => items.filter((t) => t.id !== id)),
       );
-      return { prev };
+      return { snapshots };
     },
     onError: (_err, _id, ctx) => {
-      qc.setQueryData(["tasks"], ctx?.prev);
+      ctx?.snapshots.forEach(([key, val]) =>
+        qc.setQueryData<TasksInfinite>(key, val),
+      );
       toast.error("Couldn't delete task");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
@@ -91,22 +161,27 @@ export default function TaskList() {
       api.updateTask(id, { status }),
     onMutate: async ({ id, status }) => {
       await qc.cancelQueries({ queryKey: ["tasks"] });
-      const prev = qc.getQueryData<Task[]>(["tasks"]);
-      qc.setQueryData<Task[]>(["tasks"], (old) =>
-        old?.map((t) => (t.id === id ? { ...t, status } : t)) ?? [],
+      const snapshots = qc.getQueriesData<TasksInfinite>({ queryKey: ["tasks"] });
+      qc.setQueriesData<TasksInfinite>({ queryKey: ["tasks"] }, (old) =>
+        mapPages(old, (items) =>
+          items.map((t) => (t.id === id ? { ...t, status } : t)),
+        ),
       );
-      return { prev };
+      return { snapshots };
     },
     onError: (_err, _vars, ctx) => {
-      qc.setQueryData(["tasks"], ctx?.prev);
+      ctx?.snapshots.forEach(([key, val]) =>
+        qc.setQueryData<TasksInfinite>(key, val),
+      );
       toast.error("Couldn't update status");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
   });
 
+  /* -------------------- Client-side filters (over loaded pages) -------------------- */
+
   const filtered = useMemo(() => {
-    let out = tasks ?? [];
-    if (filter !== "all") out = out.filter((t) => t.status === filter);
+    let out = allLoaded;
     if (labelFilter.length) {
       out = out.filter((t) => labelFilter.every((l) => t.labels.includes(l)));
     }
@@ -119,19 +194,28 @@ export default function TaskList() {
       );
     }
     return out;
-  }, [tasks, filter, search, labelFilter]);
+  }, [allLoaded, search, labelFilter]);
 
-  const counts = useMemo(() => {
-    const c: Record<Filter, number> = {
-      all: tasks?.length ?? 0,
-      open: 0,
-      in_progress: 0,
-      done: 0,
-      cancelled: 0,
-    };
-    tasks?.forEach((t) => (c[t.status] = (c[t.status] ?? 0) + 1));
-    return c;
-  }, [tasks]);
+  /* -------------------- Infinite scroll sentinel -------------------- */
+
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    const root = scrollerRef.current;
+    if (!el || !root || !hasNextPage) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingNextPage) fetchNextPage();
+      },
+      { root, rootMargin: "300px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, allLoaded.length]);
+
+  /* -------------------- Handlers -------------------- */
 
   function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -151,198 +235,254 @@ export default function TaskList() {
     });
   }
 
+  const isFiltering = !!search || labelFilter.length > 0;
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">
-          Your tasks
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          {counts.all === 0
-            ? "Add your first task to get started."
-            : `${counts.open} open · ${counts.in_progress} in progress · ${counts.done} done`}
-        </p>
-      </div>
-
-      <form
-        onSubmit={handleCreate}
-        className="group mb-5 flex items-center gap-2 rounded-2xl border border-zinc-200/70 bg-white p-1.5 shadow-soft transition focus-within:border-brand-300 focus-within:shadow-glow"
-      >
-        <span className="pl-3 text-zinc-400">
-          <Plus className="h-4 w-4" />
-        </span>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="What needs doing?"
-          className="h-9 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
-        />
-        <Button
-          type="submit"
-          size="sm"
-          loading={create.isPending}
-          disabled={!title.trim()}
-        >
-          Add task
-        </Button>
-      </form>
-
-      {/* Filters row */}
-      <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_18rem] md:items-center">
-        <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-soft">
-          {FILTERS.map(({ value, label }) => {
-            const active = filter === value;
-            const count = counts[value];
-            const Icon =
-              value === "all" ? ListTodo : getStatus(value as TaskStatus).icon;
-            return (
-              <button
-                key={value}
-                onClick={() => setFilter(value)}
-                className={cn(
-                  "focus-ring inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition",
-                  active
-                    ? "bg-zinc-900 text-white shadow-soft"
-                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900",
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-                <span
-                  className={cn(
-                    "ml-0.5 rounded-md px-1.5 text-[10px]",
-                    active ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-500",
-                  )}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <Input
-          value={search}
-          onChange={setSearch}
-          placeholder="Search tasks…"
-          containerClassName="md:w-72"
-          leftIcon={<Search className="h-4 w-4" />}
-        />
-      </div>
-
-      {/* Label filter row */}
-      <div className="mb-6 flex flex-wrap items-center gap-1.5">
-        <div className="relative">
-          <button
-            onClick={() => setLabelMenuOpen((v) => !v)}
-            onBlur={() => setTimeout(() => setLabelMenuOpen(false), 150)}
-            className="focus-ring inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"
-          >
-            <Tags className="h-3 w-3" />
-            Filter labels
-            {labelFilter.length > 0 && (
-              <span className="ml-1 rounded-full bg-zinc-900 px-1.5 text-[10px] text-white">
-                {labelFilter.length}
-              </span>
-            )}
-          </button>
-          <div
-            className={cn(
-              "absolute left-0 z-20 mt-2 w-64 origin-top-left rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg transition-all",
-              labelMenuOpen
-                ? "scale-100 opacity-100"
-                : "pointer-events-none scale-95 opacity-0",
-            )}
-          >
-            <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-              Filter by label
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* -------- Sticky page header -------- */}
+      <div className="shrink-0">
+        <div className="mx-auto w-full max-w-5xl px-4 pt-8 sm:px-6">
+          <div className="mb-6">
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">
+              Your tasks
+            </h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              {total === 0
+                ? "Add your first task to get started."
+                : `${total} ${filter === "all" ? "total" : getStatus(filter as TaskStatus).label.toLowerCase()}`}
             </p>
-            <div className="max-h-64 overflow-y-auto">
-              {LABELS.map((l) => {
-                const sel = labelFilter.includes(l.slug);
+          </div>
+
+          <form
+            onSubmit={handleCreate}
+            className="group mb-4 flex items-center gap-2 rounded-2xl border border-zinc-200/70 bg-white p-1.5 shadow-soft transition focus-within:border-brand-300 focus-within:shadow-glow"
+          >
+            <span className="pl-3 text-zinc-400">
+              <Plus className="h-4 w-4" />
+            </span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What needs doing?"
+              className="h-9 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              loading={create.isPending}
+              disabled={!title.trim()}
+            >
+              Add task
+            </Button>
+          </form>
+
+          {/* Filters row */}
+          <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+            <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-soft">
+              {FILTERS.map(({ value, label }) => {
+                const active = filter === value;
+                const Icon =
+                  value === "all"
+                    ? ListTodo
+                    : getStatus(value as TaskStatus).icon;
                 return (
                   <button
-                    key={l.slug}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setLabelFilter((prev) =>
-                        sel ? prev.filter((x) => x !== l.slug) : [...prev, l.slug],
-                      );
-                    }}
+                    key={value}
+                    onClick={() => setFilter(value)}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition",
-                      sel ? "bg-zinc-100" : "hover:bg-zinc-50",
+                      "focus-ring inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition",
+                      active
+                        ? "bg-zinc-900 text-white shadow-soft"
+                        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900",
                     )}
                   >
-                    <span className={cn("h-2 w-2 rounded-full", l.dot)} />
-                    <span className="flex-1 text-zinc-800">{l.name}</span>
-                    {sel && <span className="text-[10px] text-zinc-500">✓</span>}
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                    {active && (
+                      <span className="ml-0.5 rounded-md bg-white/15 px-1.5 text-[10px] text-white">
+                        {total}
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
+            <Input
+              value={search}
+              onChange={setSearch}
+              placeholder="Search loaded tasks…"
+              containerClassName="lg:w-80"
+              leftIcon={<Search className="h-4 w-4" />}
+            />
+          </div>
+
+          {/* Label filter row */}
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <div className="relative">
+              <button
+                onClick={() => setLabelMenuOpen((v) => !v)}
+                onBlur={() => setTimeout(() => setLabelMenuOpen(false), 150)}
+                className="focus-ring inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"
+              >
+                <Tags className="h-3 w-3" />
+                Filter labels
+                {labelFilter.length > 0 && (
+                  <span className="ml-1 rounded-full bg-zinc-900 px-1.5 text-[10px] text-white">
+                    {labelFilter.length}
+                  </span>
+                )}
+              </button>
+              <div
+                className={cn(
+                  "absolute left-0 z-20 mt-2 w-64 origin-top-left rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg transition-all",
+                  labelMenuOpen
+                    ? "scale-100 opacity-100"
+                    : "pointer-events-none scale-95 opacity-0",
+                )}
+              >
+                <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                  Filter by label
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  {LABELS.map((l) => {
+                    const sel = labelFilter.includes(l.slug);
+                    return (
+                      <button
+                        key={l.slug}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setLabelFilter((prev) =>
+                            sel
+                              ? prev.filter((x) => x !== l.slug)
+                              : [...prev, l.slug],
+                          );
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition",
+                          sel ? "bg-zinc-100" : "hover:bg-zinc-50",
+                        )}
+                      >
+                        <span className={cn("h-2 w-2 rounded-full", l.dot)} />
+                        <span className="flex-1 text-zinc-800">{l.name}</span>
+                        {sel && (
+                          <span className="text-[10px] text-zinc-500">✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            {labelFilter.map((slug) => (
+              <LabelChip
+                key={slug}
+                slug={slug}
+                onRemove={() =>
+                  setLabelFilter((prev) => prev.filter((x) => x !== slug))
+                }
+              />
+            ))}
+            {labelFilter.length > 0 && (
+              <button
+                onClick={() => setLabelFilter([])}
+                className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-900"
+              >
+                <X className="h-3 w-3" /> clear
+              </button>
+            )}
           </div>
         </div>
-        {labelFilter.map((slug) => (
-          <LabelChip
-            key={slug}
-            slug={slug}
-            onRemove={() =>
-              setLabelFilter((prev) => prev.filter((x) => x !== slug))
-            }
-          />
-        ))}
-        {labelFilter.length > 0 && (
-          <button
-            onClick={() => setLabelFilter([])}
-            className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-900"
-          >
-            <X className="h-3 w-3" /> clear
-          </button>
-        )}
       </div>
 
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 rounded-2xl border border-zinc-200/70 bg-white p-4"
-            >
-              <Skeleton className="h-5 w-5 rounded-md" />
-              <Skeleton className="h-4 flex-1" />
-              <Skeleton className="h-5 w-12 rounded-full" />
+      {/* -------- Scrollable list area -------- */}
+      <div
+        ref={scrollerRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+      >
+        <div className="mx-auto w-full max-w-5xl px-4 pb-10 pt-1 sm:px-6">
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 rounded-2xl border border-zinc-200/70 bg-white p-4"
+                >
+                  <Skeleton className="h-5 w-5 rounded-md" />
+                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-5 w-12 rounded-full" />
+                </div>
+              ))}
             </div>
-          ))}
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              hasAny={total > 0}
+              hasFilters={isFiltering || filter !== "all"}
+              onClear={() => {
+                setSearch("");
+                setFilter("all");
+                setLabelFilter([]);
+              }}
+            />
+          ) : (
+            <ul className="space-y-2">
+              {filtered.map((t) => (
+                <li key={t.id}>
+                  <TaskRow
+                    task={t}
+                    onStatusChange={(status) => {
+                      if (
+                        (status === "done" ||
+                          status === "in_progress" ||
+                          status === "cancelled") &&
+                        t.status !== status
+                      ) {
+                        celebrateStatus(status);
+                      }
+                      updateStatus.mutate({ id: t.id, status });
+                    }}
+                    onDelete={() => handleDelete(t)}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Pagination footer */}
+          {!isLoading && allLoaded.length > 0 && (
+            <div
+              ref={sentinelRef}
+              className="flex items-center justify-center py-6 text-xs text-zinc-400"
+            >
+              {isFetchingNextPage ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading more…
+                </span>
+              ) : hasNextPage ? (
+                <button
+                  onClick={() => fetchNextPage()}
+                  className="text-zinc-500 underline-offset-4 hover:text-zinc-900 hover:underline"
+                >
+                  Load more
+                </button>
+              ) : (
+                <span>· You're all caught up · {allLoaded.length} of {total} ·</span>
+              )}
+            </div>
+          )}
+
+          {isFiltering && filtered.length > 0 && hasNextPage && (
+            <p className="text-center text-[11px] text-zinc-400">
+              Search & label filters apply to loaded tasks. Scroll to load more.
+            </p>
+          )}
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          hasAny={counts.all > 0}
-          hasFilters={!!search || filter !== "all" || labelFilter.length > 0}
-          onClear={() => {
-            setSearch("");
-            setFilter("all");
-            setLabelFilter([]);
-          }}
-        />
-      ) : (
-        <ul className="space-y-2">
-          {filtered.map((t) => (
-            <li key={t.id}>
-              <TaskRow
-                task={t}
-                onStatusChange={(status) => {
-                  if (status === "done" && t.status !== "done") celebrate();
-                  updateStatus.mutate({ id: t.id, status });
-                }}
-                onDelete={() => handleDelete(t)}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      </div>
     </div>
   );
 }
+
+/* -------------------- Row -------------------- */
 
 function TaskRow({
   task,
@@ -365,12 +505,8 @@ function TaskRow({
         dim && "bg-zinc-50/60",
       )}
     >
-      {/* Status pill (compact picker hidden behind icon button) */}
       <div className="shrink-0">
-        <CompactStatusButton
-          status={task.status}
-          onChange={onStatusChange}
-        />
+        <CompactStatusButton status={task.status} onChange={onStatusChange} />
       </div>
 
       <Link
@@ -380,14 +516,19 @@ function TaskRow({
         <span
           className={cn(
             "truncate text-sm font-medium text-zinc-900 transition-colors",
-            task.status === "done" && "text-zinc-400 line-through",
-            task.status === "cancelled" && "text-zinc-400 line-through",
+            (task.status === "done" || task.status === "cancelled") &&
+              "text-zinc-400 line-through",
           )}
         >
           {task.title}
         </span>
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={cn("inline-flex items-center gap-1 text-[11px]", status.iconColor)}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 text-[11px]",
+              status.iconColor,
+            )}
+          >
             <StatusIcon className="h-3 w-3" />
             <span className="text-zinc-500">{status.label}</span>
           </span>
@@ -429,7 +570,6 @@ function CompactStatusButton({
 }) {
   const def = getStatus(status);
   const Icon = def.icon;
-  // Cycle through statuses on click for fast triage; full picker is in detail page.
   const order: TaskStatus[] = ["open", "in_progress", "done", "cancelled"];
   function next() {
     const i = order.indexOf(status);

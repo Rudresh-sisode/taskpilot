@@ -62,14 +62,14 @@ function buildApp() {
 // Helper to build a chainable supabase mock
 function mockChain(finalResult: any) {
   const chain: any = {};
-  const methods = ["select", "insert", "update", "delete", "eq", "order", "limit", "single", "upsert"];
+  const methods = ["select", "insert", "update", "delete", "eq", "order", "limit", "single", "upsert", "range"];
   for (const m of methods) {
     chain[m] = vi.fn().mockReturnValue(chain);
   }
   // The last call in the chain resolves to the result
   chain.single.mockResolvedValue(finalResult);
   chain.select.mockReturnValue(chain);
-  chain.order.mockResolvedValue(finalResult);
+  chain.range.mockResolvedValue(finalResult);
   return chain;
 }
 
@@ -83,14 +83,18 @@ describe("Tasks CRUD", () => {
 
   it("GET /api/tasks returns task list", async () => {
     const tasks = [{ id: "1", title: "Test", notes: "", status: "open" }];
-    const chain = mockChain({ data: tasks, error: null });
-    chain.order.mockResolvedValue({ data: tasks, error: null });
+    const chain = mockChain({ data: tasks, error: null, count: 1 });
     (supabase.from as any).mockReturnValue(chain);
 
     const res = await request(app).get("/api/tasks");
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.data).toEqual(tasks);
+    expect(res.body.data).toEqual({
+      items: tasks,
+      total: 1,
+      nextOffset: null,
+    });
+    expect(chain.range).toHaveBeenCalledWith(0, 9);
   });
 
   it("POST /api/tasks creates a task", async () => {

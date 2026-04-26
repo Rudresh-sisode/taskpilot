@@ -30,6 +30,7 @@ import { LabelPicker } from "../components/LabelPicker";
 import { celebrateStatus } from "../lib/celebration";
 import { notifyError } from "../lib/errorMascot";
 import { type TaskStatus } from "../lib/status";
+import NotFound from "./NotFound";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -184,17 +185,7 @@ export default function TaskDetail() {
 
   if (isLoading) return <TaskDetailSkeleton />;
   if (!task) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-16 text-center">
-        <p className="text-sm text-zinc-500">Task not found.</p>
-        <Link
-          to="/"
-          className="mt-3 inline-block text-sm font-medium text-brand-600 hover:underline"
-        >
-          ← Back to tasks
-        </Link>
-      </div>
-    );
+    return <NotFound message="Task not found" />;
   }
 
   return (

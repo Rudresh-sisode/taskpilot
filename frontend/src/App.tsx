@@ -7,6 +7,7 @@ import Signup from "./pages/Signup";
 import ResetPassword from "./pages/ResetPassword";
 import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
+import NotFound from "./pages/NotFound";
 
 function FullscreenLoader() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<ProtectedRoute><TaskList /></ProtectedRoute>} />
         <Route path="/tasks/:id" element={<ProtectedRoute><TaskDetail /></ProtectedRoute>} />
+        <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   );
